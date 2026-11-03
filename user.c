@@ -1,3 +1,4 @@
+
 /*==================================================================
   user.c  ——  用户注册 / 登录 / 观众菜单
   ------------------------------------------------------------------
@@ -70,14 +71,14 @@ int registerUser(void)
     saveUsers();
 
     printf("\n注册成功！你的用户编号是 %d，现在可以登录了。\n",
-        g_users[g_userCnt - 1].id);
+           g_users[g_userCnt - 1].id);
     pauseScreen();
     return 1;
 }
 
 /*-------------------- 2. 用户登录 --------------------*/
 /* 返回：1 成功（回填 name 和 uid）；0 失败 */
-int loginUser(char* name, int* uid)
+int loginUser(char *name, int *uid)
 {
     char uname[20];
     char pwd[20];
@@ -99,7 +100,7 @@ int loginUser(char* name, int* uid)
     for (i = 0; i < g_userCnt; i++)
     {
         if (strcmp(g_users[i].name, uname) == 0 &&
-            strcmp(g_users[i].pwd, pwd) == 0)
+            strcmp(g_users[i].pwd, pwd)  == 0)
         {
             strncpy(name, g_users[i].name, 19);   /* 目标只有 20 字节，别溢出 */
             name[19] = '\0';
@@ -121,7 +122,7 @@ int loginUser(char* name, int* uid)
 /*-------------------- 3. 观众菜单 --------------------*/
 /* uid：当前用户编号（购票/退票/查记录都要用）
    name：当前用户名（只用于显示） */
-void userMenu(int uid, const char* name)
+void userMenu(int uid, const char *name)
 {
     int op;
     int sIdx;

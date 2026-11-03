@@ -23,6 +23,9 @@
 #define MAX_MOVIES    30
 #define MAX_TICKETS 2500
 #define ADMIN_PWD "123456"
+// 限购：单个账号同一场放映最多购买票数
+#define MAX_PER_USER 4
+
 
 #define DATA_DIR    "data"
 #define FILE_USER     "data/user.dat"
