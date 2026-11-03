@@ -1,7 +1,7 @@
-/*==================================================================
-  admin.c  ——  管理员登录 + 管理员菜单
-==================================================================*/
+#define _CRT_SECURE_NO_WARNINGS
 #include "cinema.h"
+#include <stdio.h>
+#include <string.h>
 
 int adminLogin(void)
 {
@@ -13,9 +13,18 @@ int adminLogin(void)
     inputStr(pwd, sizeof(pwd));
 
     printf("\n【框架提示：管理员登录校验】\n");
-    printf("已收到密码，框架版不做校验，直接进入管理员菜单。\n");
+    if (strcmp(pwd, ADMIN_PWD) == 0)
+    {
+        printf("登录成功！");
+        return 1;
+    }
+    else
+        {
+        printf("密码错误！");
+        return 0;
+	}
     pauseScreen();
-    return 1;
+    
 }
 
 void adminMenu(void)
@@ -42,13 +51,21 @@ void adminMenu(void)
 
         switch (op)
         {
-        case 1: addMovie();           break;
-        case 2: showMovies();         break;
-        case 3: addSchedule();        break;
-        case 4: showSchedules();      break;
-        case 5: calculateBoxOffice(); break;
-        case 6: sortBoxOffice();      break;
+        case 1: addMovie();           
+            break;
+        case 2: showMovies();         
+            break;
+        case 3: addSchedule();        
+            break;
+        case 4: showSchedules();      
+            break;
+        case 5: calculateBoxOffice(); 
+            break;
+        case 6: sortBoxOffice();      
+            break;
         case 0: return;
         }
     }
 }
+
+

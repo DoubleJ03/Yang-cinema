@@ -43,4 +43,9 @@
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="data\cinema.dat" />
+    <None Include="data\ticket.dat" />
+    <None Include="data\user.dat" />
+  </ItemGroup>
 </Project>
