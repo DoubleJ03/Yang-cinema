@@ -4,60 +4,7 @@
 #include <string.h>
 #include <time.h>
 
-/*
- * 文件：schedule.c
- * 功能：排片、场次显示、场次查找、在售场次、选场次
- *
- * 说明：
- *   1. g_scheds、g_schedCnt、g_today 定义在 main.c。
- *   2. saveCinema()、inputInt()、inputStr() 定义在 main.c。
- *   3. findMovie()、showMovies() 定义在 movie.c。
- *   4. showOnSale()、pickSchedule() 放在本文件，
- *      因此 user.c 里不要再定义一次。
- */
 
- /* ============================================================
-  * 函数：slotTime
-  * 功能：时间段编号转时间字符串
-  * 参数：slot 1/2/3
-  * 返回：对应时间；非法编号返回 "未知"
-  * ============================================================ */
-
-/* ============================================================
- * 函数：addDays
- * 功能：以 g_today 为基准，计算 days 天后的日期
- * 参数：out  输出缓冲区，至少 11 字节
- *       days 要加的天数
- * 返回：无
- * ============================================================ */
-
-/* ============================================================
- * 函数：newSchedId
- * 功能：生成新的场次编号（当前最大编号 + 1）
- * 参数：无
- * 返回：新的场次编号
- * ============================================================ */
-
-
-/* ============================================================
- * 函数：addSchedule
- * 功能：添加一个电影场次
- * 参数：无
- * 返回：1 成功，0 失败
- * ============================================================ */
- /* ============================================================
-  * 函数：inputPriceOrDefault
-  * 功能：读取票价；直接回车使用默认价
-  * 参数：defaultPrice 默认票价
-  * 返回：合法票价；输入非法返回 -1.0f
-  * ============================================================ */
-  /* ============================================================
-   * 函数：readPriceOrDefault
-   * 功能：读取票价；直接回车使用默认价
-   * 参数：defaultPrice 默认票价
-   * 返回：合法票价；输入非法返回 -1.0f
-   * 说明：static 表示只在 schedule.c 内部使用
-   * ============================================================ */
 static float readPriceOrDefault(float defaultPrice)
 {
     char line[32];               /* 保存用户输入的一行 */
@@ -106,7 +53,6 @@ int addSchedule(void)
     int dayOffset;               /* 0~6 */
     int i;                       /* 循环变量 */
     char date[11];               /* 日期字符串 */
-    char priceBuf[20];           /* 自定义票价输入 */
     float customPrice;           /* 解析后的票价 */
 
     /* 1. 容量检查 */
@@ -137,16 +83,11 @@ int addSchedule(void)
     printf("请输入影厅号（1~%d）：", HALL_COUNT);
     hallId = inputInt(1, HALL_COUNT);
 
-    /* 5. 选择日期：0=今天，1=明天，依此类推 */
-    printf("\n请选择放映日期：\n");
-    for (i = 0; i < DAY_NUM; i++) {
-        addDays(date, i);
-        printf("%d. %s\n", i, date);
-    }
-
-    printf("请输入 0~%d：", DAY_NUM - 1);
+    /* 5. 选择日期：0=今天，1=明天，依此类推（天数较多，不逐行打印） */
+    printf("\n请输入放映日期偏移（0=今天，1=明天，最大 %d）：", DAY_NUM - 1);
     dayOffset = inputInt(0, DAY_NUM - 1);
     addDays(date, dayOffset);
+    printf("已选择日期：%s\n", date);
 
     /* 6. 选择时间段 */
     printf("请选择时间段（1=10:00，2=14:30，3=19:00）：");
@@ -195,15 +136,11 @@ int addSchedule(void)
     saveCinema();
 
     printf("排片成功，场次编号：%d\n", s.id);
+    writeAdminLog(g_currentAdminAccount, "添加场次");
     return 1;
 }
 
-/* ============================================================
- * 函数：showSchedules
- * 功能：显示所有场次（管理员用）
- * 参数：无
- * 返回：无
- * ============================================================ */
+
 void showSchedules(void)
 {
     int i;
@@ -237,13 +174,7 @@ void showSchedules(void)
 
 }
 
-/* ============================================================
- * 函数：findSchedule
- * 功能：按场次编号查找
- * 参数：id 场次编号
- * 返回：数组下标，找不到返回 -1
- * 注意：返回下标，不是场次编号。
- * ============================================================ */
+
 int findSchedule(int id)
 {
     int i;
@@ -257,12 +188,7 @@ int findSchedule(int id)
     return -1;
 }
 
-/* ============================================================
- * 函数：showOnSale
- * 功能：显示今天及以后、还有余票的场次（观众用）
- * 参数：无
- * 返回：无
- * ============================================================ */
+
 void showOnSale(void)
 {
     int i;
@@ -308,13 +234,7 @@ void showOnSale(void)
     }
 }
 
-/* ============================================================
- * 函数：pickSchedule
- * 功能：显示在售场次，让用户输入场次编号，返回数组下标
- * 参数：无
- * 返回：场次数组下标；取消或失败返回 -1
- * 注意：返回的是下标，不是场次编号。
- * ============================================================ */
+
 int pickSchedule(void)
 {
     int id;
@@ -350,3 +270,351 @@ int pickSchedule(void)
 
     return index;
 }
+
+
+
+/* ==================== 批量排片 ==================== */
+
+/* 判断某影厅、某日期、某时间段是否已有场次 */
+static int scheduleExists(int hallId, const char* date, int slot)
+{
+    int i;
+
+    for (i = 0; i < g_schedCnt; i++)
+        if (g_scheds[i].hallId == hallId &&
+            strcmp(g_scheds[i].date, date) == 0 &&
+            g_scheds[i].slot == slot)
+            return 1;
+
+    return 0;
+}
+
+/* 创建一个场次（不保存文件）；冲突或已满返回 0 */
+static int scheduleInsert(int movieId, int hallId, const char* date, int slot, float price)
+{
+    Schedule s;
+
+    if (g_schedCnt >= MAX_SCHEDULES) return 0;
+    if (scheduleExists(hallId, date, slot)) return 0;
+
+    memset(&s, 0, sizeof(s));
+    s.id = newSchedId();
+    s.movieId = movieId;
+    s.hallId = hallId;
+    strcpy(s.date, date);
+    s.slot = slot;
+    s.price = price;
+    s.soldCnt = 0;
+    s.income = 0.0f;
+
+    g_scheds[g_schedCnt] = s;
+    g_schedCnt++;
+    return 1;
+}
+
+/* 复制某天排片到另一天 */
+static int copyScheduleDay(void)
+{
+    int srcDay, dstDay, i, cnt, added = 0, skipped = 0;
+    char srcDate[11], dstDate[11];
+
+    printf("源日期偏移（0=今天）：");
+    srcDay = inputInt(0, DAY_NUM - 1);
+    printf("目标日期偏移（0=今天）：");
+    dstDay = inputInt(0, DAY_NUM - 1);
+
+    addDays(srcDate, srcDay);
+    addDays(dstDate, dstDay);
+
+    if (strcmp(srcDate, dstDate) == 0)
+    {
+        printf("源日期和目标日期相同。\n");
+        return 0;
+    }
+
+    cnt = g_schedCnt;
+    for (i = 0; i < cnt; i++)
+    {
+        if (strcmp(g_scheds[i].date, srcDate) != 0) continue;
+        if (scheduleInsert(g_scheds[i].movieId, g_scheds[i].hallId,
+                           dstDate, g_scheds[i].slot, g_scheds[i].price))
+            added++;
+        else
+            skipped++;
+    }
+
+    if (added > 0) saveCinema();
+    printf("复制完成：新增 %d 场，跳过 %d 场。\n", added, skipped);
+    return added;
+}
+
+/* 自动填充：日期范围 × 影厅 × 时段 */
+static int autoFillSchedules(void)
+{
+    int startDay, endDay, mode;
+    int movieId = 0, movieIdx = -1;
+    int day, hall, slot;
+    int added = 0, skipped = 0;
+    char date[11];
+
+    if (g_movieCnt == 0)
+    {
+        printf("还没有电影，请先添加。\n");
+        return 0;
+    }
+
+    printf("起始日期偏移（0=今天）：");
+    startDay = inputInt(0, DAY_NUM - 1);
+    printf("结束日期偏移（%d~%d）：", startDay, DAY_NUM - 1);
+    endDay = inputInt(startDay, DAY_NUM - 1);
+
+    printf("1=所有电影轮播，2=指定一部电影：");
+    mode = inputInt(1, 2);
+
+    if (mode == 2)
+    {
+        showMovies();
+        printf("请输入电影编号：");
+        movieId = inputInt(1, 1000000);
+        movieIdx = findMovie(movieId);
+        if (movieIdx == -1)
+        {
+            printf("电影编号 %d 不存在。\n", movieId);
+            return 0;
+        }
+    }
+
+    for (day = startDay; day <= endDay; day++)
+    {
+        addDays(date, day);
+
+        for (hall = 1; hall <= HALL_COUNT; hall++)
+        {
+            for (slot = 1; slot <= SHOW_PER_DAY; slot++)
+            {
+                if (g_schedCnt >= MAX_SCHEDULES)
+                {
+                    saveCinema();
+                    printf("场次已满，提前结束。新增 %d 场，跳过 %d 场。\n", added, skipped);
+                    return added;
+                }
+
+                if (scheduleExists(hall, date, slot)) { skipped++; continue; }
+
+                if (mode == 1)
+                    movieIdx = (day * HALL_COUNT * SHOW_PER_DAY +
+                                (hall - 1) * SHOW_PER_DAY + (slot - 1)) % g_movieCnt;
+
+                if (scheduleInsert(g_movies[movieIdx].id, hall, date, slot, g_movies[movieIdx].price))
+                    added++;
+                else
+                    skipped++;
+            }
+        }
+    }
+
+    saveCinema();
+    printf("自动填充完成：新增 %d 场，跳过 %d 场。\n", added, skipped);
+    return added;
+}
+
+/* 从文本文件导入场次：日期|影厅|时段|电影编号|票价 */
+static int importSchedulesFile(void)
+{
+    FILE* fp;
+    char line[256];
+    char date[11];
+    char priceStr[32];
+    char minDate[11], maxDate[11];
+    int hall, slot, movieId, movieIdx;
+    float price;
+    int lineNo = 0, added = 0, skipped = 0, failed = 0;
+
+    fp = fopen("data/schedules_batch.txt", "r");
+    if (fp == NULL)
+    {
+        printf("找不到 data/schedules_batch.txt。\n");
+        return 0;
+    }
+
+    strcpy(minDate, g_today);
+    addDays(maxDate, DAY_NUM - 1);
+
+    while (fgets(line, sizeof(line), fp) != NULL)
+    {
+        lineNo++;
+        line[strcspn(line, "\r\n")] = '\0';
+        if (line[0] == '\0' || line[0] == '#') continue;
+
+        if (sscanf(line, "%10[^|]|%d|%d|%d|%31[^|]",
+                   date, &hall, &slot, &movieId, priceStr) != 5)
+        {
+            printf("第 %d 行格式错误，跳过。\n", lineNo);
+            failed++;
+            continue;
+        }
+
+        if (strlen(date) != 10 || strcmp(date, minDate) < 0 || strcmp(date, maxDate) > 0)
+        {
+            printf("第 %d 行日期非法或超出时间线，跳过。\n", lineNo);
+            failed++;
+            continue;
+        }
+
+        if (hall < 1 || hall > HALL_COUNT || slot < 1 || slot > SHOW_PER_DAY)
+        {
+            printf("第 %d 行影厅或时段非法，跳过。\n", lineNo);
+            failed++;
+            continue;
+        }
+
+        movieIdx = findMovie(movieId);
+        if (movieIdx == -1)
+        {
+            printf("第 %d 行电影编号不存在，跳过。\n", lineNo);
+            failed++;
+            continue;
+        }
+
+        price = 0.0f;
+        sscanf(priceStr, "%f", &price);
+        if (price <= 0.0f) price = g_movies[movieIdx].price;
+
+        if (scheduleInsert(movieId, hall, date, slot, price))
+            added++;
+        else
+            skipped++;
+    }
+    fclose(fp);
+
+    if (added > 0) saveCinema();
+    printf("文件导入完成：新增 %d 场，跳过 %d 场，失败 %d 场。\n", added, skipped, failed);
+    return added;
+}
+
+/* 批量添加场次入口 */
+int addSchedulesBatch(void)
+{
+    int op;
+
+    printf("\n1. 复制某天排片\n");
+    printf("2. 自动填充\n");
+    printf("3. 文件导入\n");
+    printf("0. 返回\n");
+    printf("请选择 [0-3]：");
+    op = inputInt(0, 3);
+
+    if (op == 1) return copyScheduleDay();
+    if (op == 2) return autoFillSchedules();
+    if (op == 3) return importSchedulesFile();
+    return 0;
+}
+
+/* 批量删除场次：筛选 + 编号；有有效票自动退票 */
+int deleteSchedulesBatch(void)
+{
+    char del[MAX_SCHEDULES];
+    int  sel[MAX_SCHEDULES];
+    int  selCnt = 0;
+    int  mode, i, j, w, s;
+    int  dayOffset, hall, slot;
+    int  id, dup;
+    int  validCnt = 0;
+    double refundTotal = 0.0;
+    int  confirm;
+    char date[11];
+
+    memset(del, 0, sizeof(del));
+
+    printf("\n1. 按日期/影厅/时段筛选\n2. 按场次编号\n0. 返回\n请选择 [0-2]：");
+    mode = inputInt(0, 2);
+    if (mode == 0) return 0;
+
+    if (mode == 1)
+    {
+        printf("日期偏移（0=今天）：");
+        dayOffset = inputInt(0, DAY_NUM - 1);
+        addDays(date, dayOffset);
+        printf("影厅（0=全部，1~%d）：", HALL_COUNT);
+        hall = inputInt(0, HALL_COUNT);
+        printf("时段（0=全部，1~%d）：", SHOW_PER_DAY);
+        slot = inputInt(0, SHOW_PER_DAY);
+
+        for (i = 0; i < g_schedCnt; i++)
+        {
+            if (strcmp(g_scheds[i].date, date) != 0) continue;
+            if (hall != 0 && g_scheds[i].hallId != hall) continue;
+            if (slot != 0 && g_scheds[i].slot != slot) continue;
+            sel[selCnt++] = i;
+        }
+    }
+    else
+    {
+        printf("输入场次编号，输入 0 结束：\n");
+        while (selCnt < MAX_SCHEDULES)
+        {
+            printf("场次编号：");
+            id = inputInt(0, 1000000);
+            if (id == 0) break;
+
+            i = findSchedule(id);
+            if (i == -1) { printf("场次不存在。\n"); continue; }
+
+            dup = 0;
+            for (j = 0; j < selCnt; j++)
+                if (sel[j] == i) { dup = 1; break; }
+            if (dup) { printf("已选过。\n"); continue; }
+
+            sel[selCnt++] = i;
+        }
+    }
+
+    if (selCnt == 0) { printf("没有符合条件的场次。\n"); return 0; }
+
+    /* 预览有效票 */
+    for (i = 0; i < selCnt; i++)
+    {
+        s = sel[i];
+        for (j = 0; j < g_ticketCnt; j++)
+            if (g_tickets[j].schedId == g_scheds[s].id && g_tickets[j].state == 1)
+            {
+                validCnt++;
+                refundTotal += g_tickets[j].price;
+            }
+    }
+
+    printf("\n将删除 %d 个场次。\n", selCnt);
+    if (validCnt > 0)
+    {
+        printf("其中 %d 张有效票将被自动退票，退款 %.2f 元。\n", validCnt, refundTotal);
+        printf("删除后订单记录仍保留（状态改为已退）。\n");
+    }
+    printf("确认删除？1=是，0=取消：");
+    confirm = inputInt(0, 1);
+    if (confirm == 0) { printf("已取消。\n"); return 0; }
+
+    /* 先退票 */
+    for (i = 0; i < selCnt; i++)
+    {
+        s = sel[i];
+        for (j = 0; j < g_ticketCnt; j++)
+            if (g_tickets[j].schedId == g_scheds[s].id && g_tickets[j].state == 1)
+                ticketRefundOne(j, g_currentAdminId);
+    }
+
+    /* 标记删除 */
+    for (i = 0; i < selCnt; i++) del[sel[i]] = 1;
+
+    /* 重建数组，跳过被删的场次 */
+    w = 0;
+    for (i = 0; i < g_schedCnt; i++)
+        if (!del[i]) g_scheds[w++] = g_scheds[i];
+    g_schedCnt = w;
+
+    saveCinema();
+    saveTickets();
+    printf("删除完成：共删除 %d 个场次，退票 %d 张。\n", selCnt, validCnt);
+    writeAdminLog(g_currentAdminAccount, "批量删除场次");
+    return selCnt;
+}
+

@@ -28,6 +28,12 @@ int      g_ticketCnt = 0;
 
 char     g_today[11] = { 0 };
 
+Admin    g_admins[MAX_ADMINS];
+int      g_adminCnt = 0;
+int      g_currentAdminId = 0;
+int      g_currentAdminRole = 0;
+char     g_currentAdminAccount[20] = { 0 };
+
 /*==================== 2. 数据层 ====================*/
 /* 读写规则（双方必须一致，改了要通知对方）：
      user.dat   : [int 条数][User × 条数]
@@ -41,6 +47,16 @@ static void getToday(char* out)
     time_t    t = time(NULL);
     struct tm* p = localtime(&t);
     sprintf(out, "%04d-%02d-%02d", p->tm_year + 1900, p->tm_mon + 1, p->tm_mday);
+}
+
+
+void getNow(char* out)
+{
+    time_t    t = time(NULL);
+    struct tm* p = localtime(&t);
+    sprintf(out, "%04d-%02d-%02d %02d:%02d:%02d",
+        p->tm_year + 1900, p->tm_mon + 1, p->tm_mday,
+        p->tm_hour, p->tm_min, p->tm_sec);
 }
 
 void loadUsers(void)
@@ -168,11 +184,69 @@ void saveTickets(void)
     fclose(fp);
 }
 
+
+void loadAdmins(void)
+{
+    FILE* fp;
+    g_adminCnt = 0;
+    fp = fopen(FILE_ADMIN, "rb");
+    if (fp == NULL) return;
+
+    if (fread(&g_adminCnt, sizeof(int), 1, fp) != 1)
+    {
+        g_adminCnt = 0;
+        fclose(fp);
+        return;
+    }
+    if (g_adminCnt < 0 || g_adminCnt > MAX_ADMINS)
+    {
+        printf("警告：admin.dat 条数异常(%d)，已重置。\n", g_adminCnt);
+        g_adminCnt = 0;
+        fclose(fp);
+        return;
+    }
+    if (g_adminCnt > 0)
+        fread(g_admins, sizeof(Admin), g_adminCnt, fp);
+    fclose(fp);
+}
+
+void saveAdmins(void)
+{
+    FILE* fp = fopen(FILE_ADMIN, "wb");
+    if (fp == NULL)
+    {
+        printf("admin.dat 保存失败，请检查 write 权限。\n");
+        return;
+    }
+    fwrite(&g_adminCnt, sizeof(int), 1, fp);
+    if (g_adminCnt > 0)
+        fwrite(g_admins, sizeof(Admin), g_adminCnt, fp);
+    fclose(fp);
+}
+
+static void seedAdmin(void)
+{
+    if (g_adminCnt > 0) return;
+
+    g_admins[0].id = 1;
+    strcpy(g_admins[0].account, "admin");
+    strcpy(g_admins[0].pwd, ADMIN_PWD);
+    g_admins[0].role = 1;
+    g_admins[0].status = 1;
+    getNow(g_admins[0].create_time);
+    g_admins[0].last_login[0] = '\0';
+    g_adminCnt = 1;
+
+    saveAdmins();
+    printf("已创建默认超级管理员：admin（密码 123456）\n");
+}
+
 void dataSaveAll(void)
 {
     saveUsers();
     saveCinema();
     saveTickets();
+    saveAdmins();
 }
 
 void dataInit(void)
@@ -182,9 +256,17 @@ void dataInit(void)
     loadUsers();
     loadCinema();
     loadTickets();
+    loadAdmins();
+    seedAdmin();
 
-    printf("数据载入完成：用户 %d 个，影片 %d 部，场次 %d 场，订单 %d 条。\n",
-        g_userCnt, g_movieCnt, g_schedCnt, g_ticketCnt);
+    /* 确保数据文件都存在，便于备份/恢复 */
+    saveUsers();
+    saveCinema();
+    saveTickets();
+    saveAdmins();
+
+    printf("数据载入完成：用户 %d 个，影片 %d 部，场次 %d 场，订单 %d 条，管理员 %d 个。\n",
+        g_userCnt, g_movieCnt, g_schedCnt, g_ticketCnt, g_adminCnt);
     if (g_movieCnt == 0)
         printf("提示：还没有任何影片，请先用管理员账号排片。\n");
     pauseScreen();
@@ -310,6 +392,15 @@ int newTicketId(void)
     return max + 1;
 }
 
+
+int newAdminId(void)
+{
+    int i, max = 0;
+    for (i = 0; i < g_adminCnt; i++)
+        if (g_admins[i].id > max) max = g_admins[i].id;
+    return max + 1;
+}
+
 /*==================== 4. 主菜单 ====================*/
 void showMainMenu(void)
 {
@@ -365,3 +456,162 @@ int main(void)
     }
     return 0;
 }
+
+
+
+/* ==================== 日志 / 备份 / 一致性 ==================== */
+
+static int copyFileBinary(const char* src, const char* dst)
+{
+    FILE* in = fopen(src, "rb");
+    FILE* out;
+    char buf[4096];
+    size_t n;
+
+    if (in == NULL) return 0;
+    out = fopen(dst, "wb");
+    if (out == NULL) { fclose(in); return 0; }
+
+    while ((n = fread(buf, 1, sizeof(buf), in)) > 0)
+        fwrite(buf, 1, n, out);
+
+    fclose(in);
+    fclose(out);
+    return 1;
+}
+
+void writeAdminLog(const char* who, const char* action)
+{
+    FILE* fp = fopen(FILE_ADMIN_LOG, "a");
+    char ts[DATETIME_LEN];
+
+    if (fp == NULL) return;
+    getNow(ts);
+    fprintf(fp, "[%s] %s %s\n", ts, who, action);
+    fclose(fp);
+}
+
+int backupAllData(void)
+{
+    char info[256];
+    char ts[DATETIME_LEN];
+    int ok = 0;
+    FILE* fp;
+
+    _mkdir("data/backup");
+
+    ok += copyFileBinary(FILE_USER, "data/backup/user.dat.bak");
+    ok += copyFileBinary(FILE_CINEMA, "data/backup/cinema.dat.bak");
+    ok += copyFileBinary(FILE_TICKET, "data/backup/ticket.dat.bak");
+    ok += copyFileBinary(FILE_ADMIN, "data/backup/admin.dat.bak");
+
+    if (ok < 4)
+    {
+        printf("备份失败：部分文件缺失。\n");
+        return 0;
+    }
+
+    getNow(ts);
+    sprintf(info, "备份时间：%s\n用户：%d\n电影：%d\n场次：%d\n订单：%d\n管理员：%d\n",
+        ts, g_userCnt, g_movieCnt, g_schedCnt, g_ticketCnt, g_adminCnt);
+
+    fp = fopen("data/backup/backup_info.txt", "w");
+    if (fp) { fputs(info, fp); fclose(fp); }
+
+    printf("备份完成。\n");
+    writeAdminLog(g_currentAdminAccount, "备份数据");
+    return 1;
+}
+
+int restoreAllData(void)
+{
+    int ok = 0;
+    int confirm;
+
+    printf("恢复最近备份会覆盖当前所有数据，是否继续？1=是，0=取消：");
+    confirm = inputInt(0, 1);
+    if (confirm == 0) { printf("已取消。\n"); return 0; }
+
+    ok += copyFileBinary("data/backup/user.dat.bak", FILE_USER);
+    ok += copyFileBinary("data/backup/cinema.dat.bak", FILE_CINEMA);
+    ok += copyFileBinary("data/backup/ticket.dat.bak", FILE_TICKET);
+    ok += copyFileBinary("data/backup/admin.dat.bak", FILE_ADMIN);
+
+    if (ok < 4) { printf("恢复失败：备份不完整。\n"); return 0; }
+
+    loadUsers();
+    loadCinema();
+    loadTickets();
+    loadAdmins();
+
+    writeAdminLog(g_currentAdminAccount, "恢复备份");
+
+    g_currentAdminId = 0;
+    g_currentAdminRole = 0;
+    g_currentAdminAccount[0] = '\0';
+
+    printf("恢复完成，请返回主菜单重新登录。\n");
+    return 1;
+}
+
+void checkData(void)
+{
+    int i, r, c, seatSold, problems = 0;
+    int t, sIdx;
+    float ticketIncome, diff;
+
+    printf("==== 数据一致性检查 ====\n");
+
+    for (i = 0; i < g_schedCnt; i++)
+    {
+        seatSold = 0;
+        for (r = 0; r < ROW_COUNT; r++)
+            for (c = 0; c < COL_COUNT; c++)
+                if (g_scheds[i].seat[r][c] == 1) seatSold++;
+
+        if (seatSold != g_scheds[i].soldCnt)
+        {
+            printf("场次 %d：座位已售 %d，soldCnt=%d，不一致。\n",
+                g_scheds[i].id, seatSold, g_scheds[i].soldCnt);
+            problems++;
+        }
+
+        ticketIncome = 0.0f;
+        for (t = 0; t < g_ticketCnt; t++)
+            if (g_tickets[t].schedId == g_scheds[i].id && g_tickets[t].state == 1)
+                ticketIncome += g_tickets[t].price;
+
+        diff = g_scheds[i].income - ticketIncome;
+        if (diff < 0) diff = -diff;
+        if (diff > 0.01f)
+        {
+            printf("场次 %d：income=%.2f，有效票金额=%.2f，不一致。\n",
+                g_scheds[i].id, g_scheds[i].income, ticketIncome);
+            problems++;
+        }
+    }
+
+    for (t = 0; t < g_ticketCnt; t++)
+    {
+        if (g_tickets[t].state != 1) continue;
+
+        sIdx = findSchedule(g_tickets[t].schedId);
+        if (sIdx < 0)
+        {
+            printf("票 %d：有效票但场次不存在。\n", g_tickets[t].id);
+            problems++;
+            continue;
+        }
+        if (g_scheds[sIdx].seat[g_tickets[t].row][g_tickets[t].col] != 1)
+        {
+            printf("票 %d：有效票但座位未标记已售。\n", g_tickets[t].id);
+            problems++;
+        }
+    }
+
+    if (problems == 0)
+        printf("一致性检查通过，未发现问题。\n");
+    else
+        printf("共发现 %d 处不一致。\n", problems);
+}
+
