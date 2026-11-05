@@ -15,7 +15,7 @@ int adminLogin(void)
     printf("请输入账号：");
     inputStr(account, sizeof(account));
     printf("请输入密码：");
-    inputStr(pwd, sizeof(pwd));
+    inputPassword(pwd, sizeof(pwd));   /* 显示 * ，不露密码 */
 
     for (i = 0; i < g_adminCnt; i++)
     {

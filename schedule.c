@@ -141,37 +141,59 @@ int addSchedule(void)
 }
 
 
+/* 场次状态：先看余票，再看时间。
+   判断全部复用 isStarted()/minutesToStart()，不另写一套时间逻辑 */
+static const char* schedState(int i, char* buf)
+{
+    int left = SEAT_TOTAL - g_scheds[i].soldCnt;
+
+    if (left <= 0)                 strcpy(buf, "售罄");
+    else if (isStarted(i))         strcpy(buf, "已开演");
+    else if (!isStarted(i) && minutesToStart(i) <= 120) strcpy(buf, "即将开演");
+    else                           strcpy(buf, "待映");
+
+    return buf;
+}
+
 void showSchedules(void)
 {
-    int i;
-    int movieIndex;
-    int left;
+    int  i, movieIndex, left;
+    char name[64], tag[16];
+    const char* color;
 
+    system("cls");
     if (g_schedCnt == 0) {
         printf("暂无场次，请先排片。\n");
+        pauseScreen();
         return;
     }
 
-    printf("\n场次号\t电影\t\t影厅\t日期\t\t时间\t票价\t余票\n");
+    printf("=================== 全部场次 ===================\n");
+    printf("  %-6s  %-16s  %-4s  %-11s  %-5s  %6s  %5s  %s\n",
+        "场次号", "电影", "影厅", "日期", "时间", "票价", "余票", "状态");
 
     for (i = 0; i < g_schedCnt; i++) {
         movieIndex = findMovie(g_scheds[i].movieId);
         left = SEAT_TOTAL - g_scheds[i].soldCnt;
-        if (left < 0) {
-            left = 0;
-        }
+        if (left < 0) left = 0;
 
-        printf("%d\t%-16s\t%d\t%s\t%s\t%.2f\t%d\n",
-            g_scheds[i].id,
-            (movieIndex == -1 ? "未知电影" : g_movies[movieIndex].name),
-            g_scheds[i].hallId,
-            g_scheds[i].date,
-            slotTime(g_scheds[i].slot),
-            g_scheds[i].price,
-            left);
+        fitText(name, (movieIndex == -1 ? "未知电影" : g_movies[movieIndex].name), 16);
+        schedState(i, tag);
+
+        if (g_colorOn)
+        {
+            if (left <= 0)                 color = "\x1b[1;33m";  /* 黄：售罄 */
+            else if (isStarted(i))         color = "\x1b[1;31m";  /* 红：已开演 */
+            else                           color = "\x1b[1;32m";  /* 绿：还能卖 */
+        }
+        else color = "";
+
+        printf("  %-6d  %s  %-4d  %-11s  %-5s  %6.2f  %5d  %s%s%s\n",
+            g_scheds[i].id, name, g_scheds[i].hallId, g_scheds[i].date,
+            slotTime(g_scheds[i].slot), g_scheds[i].price, left,
+            color, tag, g_colorOn ? "\x1b[0m" : "");
     }
     pauseScreen();
-
 }
 
 
@@ -191,47 +213,51 @@ int findSchedule(int id)
 
 void showOnSale(void)
 {
-    int i;
-    int movieIndex;
-    int left;
-    int found = 0;
+    int  i, movieIndex, left, found = 0;
+    char name[64], tag[16];
+    const char* color;
 
     if (g_schedCnt == 0) {
+        system("cls");
         printf("暂无场次。\n");
         return;
     }
 
-    printf("\n===== 正在售卖的场次 =====\n");
-    printf("场次号\t电影\t\t影厅\t日期\t\t时间\t票价\t余票\n");
+    system("cls");
+    printf("================ 正在售卖的场次 ================\n");
+    printf("  %-6s  %-16s  %-4s  %-11s  %-5s  %6s  %5s  %s\n",
+        "场次号", "电影", "影厅", "日期", "时间", "票价", "余票", "状态");
 
     for (i = 0; i < g_schedCnt; i++) {
-        /* 只显示今天及以后的场次，过去的场次不卖 */
-        if (strcmp(g_scheds[i].date, g_today) < 0) {
-            continue;
-        }
+        /* 已经开演的不卖；余票为 0 也不卖。
+           以前只比日期，导致"今天已开场的场次还能买、买完却退不了" */
+        if (isStarted(i)) continue;
 
         left = SEAT_TOTAL - g_scheds[i].soldCnt;
-        if (left <= 0) {
-            continue;                /* 卖完了，不显示 */
-        }
+        if (left <= 0) continue;
 
         movieIndex = findMovie(g_scheds[i].movieId);
+        fitText(name, (movieIndex == -1 ? "未知电影" : g_movies[movieIndex].name), 16);
 
-        printf("%d\t%-16s\t%d\t%s\t%s\t%.2f\t%d\n",
-            g_scheds[i].id,
-            (movieIndex == -1 ? "未知电影" : g_movies[movieIndex].name),
-            g_scheds[i].hallId,
-            g_scheds[i].date,
-            slotTime(g_scheds[i].slot),
-            g_scheds[i].price,
-            left);
+        if (minutesToStart(i) <= 120) {
+            strcpy(tag, "即将开演");
+            color = g_colorOn ? "\x1b[1;33m" : "";
+        }
+        else {
+            strcpy(tag, "售票中");
+            color = g_colorOn ? "\x1b[1;32m" : "";
+        }
+
+        printf("  %-6d  %s  %-4d  %-11s  %-5s  %6.2f  %5d  %s%s%s\n",
+            g_scheds[i].id, name, g_scheds[i].hallId, g_scheds[i].date,
+            slotTime(g_scheds[i].slot), g_scheds[i].price, left,
+            color, tag, g_colorOn ? "\x1b[0m" : "");
 
         found = 1;
     }
 
-    if (found == 0) {
-        printf("暂无可售场次。\n");
-    }
+    if (found == 0)
+        printf("  暂无可售场次。\n");
 }
 
 
@@ -243,7 +269,7 @@ int pickSchedule(void)
 
     showOnSale();
 
-    printf("请输入场次编号（输入 0 取消）：");
+    printf("\n请输入场次编号（输入 0 取消）：");
     id = inputInt(0, 1000000);
 
     if (id == 0) {
@@ -256,9 +282,10 @@ int pickSchedule(void)
         return -1;
     }
 
-    /* 再检查一次：日期不能是过去，余票不能为 0 */
-    if (strcmp(g_scheds[index].date, g_today) < 0) {
-        printf("该场次已经过期。\n");
+    /* 再检查一次：开场时间过了就不卖，余票为 0 也不卖。
+       这里用 isStarted 而不是比日期 —— 同一天不同时段差别很大 */
+    if (isStarted(index)) {
+        printf("该场次已经开场，不能再买票。\n");
         return -1;
     }
 
@@ -454,9 +481,17 @@ static int importSchedulesFile(void)
             continue;
         }
 
-        if (strlen(date) != 10 || strcmp(date, minDate) < 0 || strcmp(date, maxDate) > 0)
+        /* 先看是不是日历上真有这一天（2026-02-31 能过长度检查，但日子不存在），
+           再看在不在可排片的时间线内 */
+        if (strlen(date) != 10 || !isValidDate(date))
         {
-            printf("第 %d 行日期非法或超出时间线，跳过。\n", lineNo);
+            printf("第 %d 行日期不是合法日期，跳过。\n", lineNo);
+            failed++;
+            continue;
+        }
+        if (strcmp(date, minDate) < 0 || strcmp(date, maxDate) > 0)
+        {
+            printf("第 %d 行日期超出可排片时间线，跳过。\n", lineNo);
             failed++;
             continue;
         }
@@ -575,8 +610,10 @@ int deleteSchedulesBatch(void)
     for (i = 0; i < selCnt; i++)
     {
         s = sel[i];
+        /* 改签票（4）也在这场上，撤场同样要赔，否则会变成“场次没了、票还有效”的孤儿票 */
         for (j = 0; j < g_ticketCnt; j++)
-            if (g_tickets[j].schedId == g_scheds[s].id && g_tickets[j].state == 1)
+            if (g_tickets[j].schedId == g_scheds[s].id &&
+                TICKET_VALID(g_tickets[j].state))
             {
                 validCnt++;
                 refundTotal += g_tickets[j].price;
@@ -586,7 +623,7 @@ int deleteSchedulesBatch(void)
     printf("\n将删除 %d 个场次。\n", selCnt);
     if (validCnt > 0)
     {
-        printf("其中 %d 张有效票将被自动退票，退款 %.2f 元。\n", validCnt, refundTotal);
+        printf("其中 %d 张有效票将被自动作废，全额退款 %.2f 元。\n", validCnt, refundTotal);
         printf("删除后订单记录仍保留（状态改为已退）。\n");
     }
     printf("确认删除？1=是，0=取消：");
@@ -597,9 +634,11 @@ int deleteSchedulesBatch(void)
     for (i = 0; i < selCnt; i++)
     {
         s = sel[i];
+        /* 撤场属于影院方原因：不走阶梯手续费，任何在售票一律全额作废 */
         for (j = 0; j < g_ticketCnt; j++)
-            if (g_tickets[j].schedId == g_scheds[s].id && g_tickets[j].state == 1)
-                ticketRefundOne(j, g_currentAdminId);
+            if (g_tickets[j].schedId == g_scheds[s].id &&
+                TICKET_VALID(g_tickets[j].state))
+                ticketForceVoid(j, g_currentAdminId);
     }
 
     /* 标记删除 */

@@ -123,10 +123,12 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="cinema.h" />
+  </ItemGroup>
+  <ItemGroup>
     <ClCompile Include="admin.c" />
     <ClCompile Include="movie.c" />
     <ClCompile Include="main.c" />
-    <ClCompile Include="cinema.h" />
     <ClCompile Include="schedule.c" />
     <ClCompile Include="seat.c" />
     <ClCompile Include="statistics.c" />

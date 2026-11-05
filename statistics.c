@@ -193,7 +193,7 @@ void exportOrdersCSV(void)
         csvField(fp, t->movieName); fputc(',', fp);
         csvField(fp, t->date); fputc(',', fp);
         fprintf(fp, "%d,%d,%d,%d,%.2f,", t->slot, t->hallId, t->row + 1, t->col + 1, t->price);
-        csvField(fp, t->state == 1 ? "有效" : "已退"); fputc(',', fp);
+        csvField(fp, ticketStateText(t->state)); fputc(',', fp);
         csvField(fp, t->purchase_time); fputc(',', fp);
         csvField(fp, t->refund_time[0] == '\0' ? "" : t->refund_time); fputc(',', fp);
         csvField(fp, op);
@@ -220,7 +220,8 @@ void exportMovieRevenueCSV(void)
 
     for (i = 0; i < g_ticketCnt; i++)
     {
-        if (g_tickets[i].state != 1) continue;
+        /* 改签票（state=4）仍然有效、仍然贡献票房，漏掉它净票房会偏小 */
+        if (!TICKET_VALID(g_tickets[i].state)) continue;
         sIdx = findSchedule(g_tickets[i].schedId);
         if (sIdx < 0) continue;
         m = findMovie(g_scheds[sIdx].movieId);
